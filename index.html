@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZwainDev Deprem API – Türkiye Anlık Deprem Takibi</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --bg: #0b0f1a;
+            --card: rgba(255,255,255,0.05);
+            --border: rgba(255,255,255,0.1);
+            --accent: #e94560;
+            --accent2: #ff6b6b;
+            --text: #e8e8f0;
+            --muted: #9a9ab0;
+            --success: #2ecc71;
+            --warning: #f1c40f;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(160deg, #0b0f1a 0%, #12182b 40%, #0f1a2e 100%);
+            min-height: 100vh;
+            color: var(--text);
+            padding: 16px;
+        }
+        .container { max-width: 1500px; margin: 0 auto; }
+        header {
+            text-align: center;
+            padding: 28px 20px;
+            background: var(--card);
+            border-radius: 18px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+        }
+        header h1 {
+            font-size: 2.2em;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 6px;
+        }
+        header p { color: var(--muted); font-size: 1em; }
+        .badge-row {
+            display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 12px;
+        }
+        .badge {
+            background: rgba(233,69,96,0.15);
+            border: 1px solid rgba(233,69,96,0.3);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            color: var(--accent2);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--card);
+            padding: 16px;
+            border-radius: 14px;
+            text-align: center;
+            border: 1px solid var(--border);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-3px); border-color: rgba(233,69,96,0.4); }
+        .stat-card h3 { color: var(--muted); font-size: 0.78em; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.8px; }
+        .stat-card .value { font-size: 1.7em; font-weight: 700; color: var(--accent); }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        @media (max-width: 1000px) {
+            .main-layout { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: var(--card);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: 600;
+            color: var(--accent);
+        }
+        #map {
+            height: 420px;
+            width: 100%;
+            background: #0a0e17;
+        }
+        .map-legend {
+            display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px;
+            font-size: 0.75em; color: var(--muted);
+            border-top: 1px solid var(--border);
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .legend-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+        }
+
+        .filters {
+            background: var(--card);
+            padding: 14px 16px;
+            border-radius: 14px;
+            margin-bottom: 16px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            border: 1px solid var(--border);
+        }
+        .filters select, .filters input, .filters button {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filters select:hover, .filters input:hover, .filters button:hover {
+            background: rgba(255,255,255,0.14);
+        }
+        .filters button {
+            background: var(--accent);
+            border: none;
+            font-weight: 600;
+        }
+        .filters button:hover { background: #c23152; transform: scale(1.03); }
+        .filters input { min-width: 160px; }
+        .refresh-info {
+            font-size: 0.8em;
+            color: var(--muted);
+            margin-left: auto;
+        }
+
+        .deprem-grid {
+            display: grid;
+            gap: 10px;
+            max-height: 520px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .deprem-grid::-webkit-scrollbar { width: 6px; }
+        .deprem-grid::-webkit-scrollbar-thumb { background: rgba(233,69,96,0.4); border-radius: 3px; }
+
+        .deprem-card {
+            background: rgba(255,255,255,0.04);
+            padding: 14px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .deprem-card:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(233,69,96,0.35);
+            transform: translateX(4px);
+        }
+        .deprem-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .buyukluk-badge {
+            font-size: 1.5em;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 8px;
+            color: #fff;
+            min-width: 52px;
+            text-align: center;
+        }
+        .deprem-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 6px;
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 9px;
+            background: rgba(255,255,255,0.04);
+            border-radius: 6px;
+            font-size: 0.88em;
+        }
+        .info-item .label { color: var(--muted); }
+        .info-item .value { color: #fff; font-weight: 600; }
+        .yer {
+            margin-top: 8px;
+            padding: 8px 10px;
+            background: rgba(233,69,96,0.08);
+            border-radius: 8px;
+            border-left: 3px solid var(--accent);
+            font-size: 0.9em;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 2000;
+            overflow-y: auto;
+            backdrop-filter: blur(4px);
+        }
+        .modal-content {
+            background: #12182b;
+            margin: 30px auto;
+            padding: 24px;
+            border-radius: 18px;
+            max-width: 820px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .close {
+            color: var(--accent);
+            font-size: 28px;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .section-title {
+            color: var(--accent);
+            margin: 18px 0 8px 0;
+            font-size: 1.1em;
+            border-bottom: 1px solid rgba(233,69,96,0.25);
+            padding-bottom: 4px;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+            font-size: 1.05em;
+        }
+        .empty { text-align: center; padding: 30px; color: var(--muted); }
+
+        @media (max-width: 768px) {
+            header h1 { font-size: 1.6em; }
+            .filters { flex-direction: column; }
+            .filters select, .filters input, .filters button { width: 100%; }
+            .detail-grid { grid-template-columns: 1fr; }
+            .refresh-info { margin-left: 0; width: 100%; text-align: center; }
+            #map { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌍 ZwainDev Deprem API</h1>
+            <p>Türkiye'nin anlık deprem takip & analiz sistemi</p>
+            <div class="badge-row">
+                <span class="badge" id="kaynakBadge">Kaynak: -</span>
+                <span class="badge" id="versionBadge">v4.0</span>
+                <span class="badge" id="statusBadge">● Aktif</span>
+            </div>
+        </header>
+
+        <div class="stats" id="stats">
+            <div class="stat-card"><h3>Toplam Deprem</h3><div class="value" id="totalDeprem">-</div></div>
+            <div class="stat-card"><h3>En Büyük</h3><div class="value" id="maxBuyukluk">-</div></div>
+            <div class="stat-card"><h3>Son Güncelleme</h3><div class="value" id="lastUpdate" style="font-size:0.95em;">-</div></div>
+            <div class="stat-card"><h3>Aktif Bölge</h3><div class="value" id="aktifSehir" style="font-size:1.1em;">-</div></div>
+            <div class="stat-card"><h3>≥4.0 Deprem</h3><div class="value" id="buyukSayisi">-</div></div>
+        </div>
+
+        <div class="filters">
+            <select id="buyuklukFilter">
+                <option value="0">Tüm Büyüklükler</option>
+                <option value="1">1.0+</option>
+                <option value="2">2.0+</option>
+                <option value="3" selected>3.0+</option>
+                <option value="4">4.0+</option>
+                <option value="5">5.0+</option>
+            </select>
+            <select id="sehirFilter">
+                <option value="">Tüm Şehirler</option>
+            </select>
+            <select id="saatFilter">
+                <option value="0">Tüm Zamanlar</option>
+                <option value="1">Son 1 Saat</option>
+                <option value="3">Son 3 Saat</option>
+                <option value="6">Son 6 Saat</option>
+                <option value="12">Son 12 Saat</option>
+                <option value="24" selected>Son 24 Saat</option>
+                <option value="48">Son 48 Saat</option>
+            </select>
+            <input type="text" id="aramaInput" placeholder="Yer ara... (örn: Marmaris)">
+            <button onclick="depremleriGetir(true)">🔄 Yenile</button>
+            <span class="refresh-info" id="refreshInfo">Otomatik yenileme: 2 dk</span>
+        </div>
+
+        <div class="main-layout">
+            <div class="panel">
+                <div class="panel-header">
+                    <span>🗺️ Deprem Haritası</span>
+                    <span id="mapCount" style="font-weight:400;color:var(--muted);font-size:0.85em;"></span>
+                </div>
+                <div id="map"></div>
+                <div class="map-legend">
+                    <div class="legend-item"><span class="legend-dot" style="background:#95a5a6"></span> &lt;2</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#3498db"></span> 2-3</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#2ecc71"></span> 3-4</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#f1c40f"></span> 4-5</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#e67e22"></span> 5-6</div>
+                    <div class="legend-item"><span class="legend-dot" style="background:#e74c3c"></span> 6+</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <span>📋 Son Depremler</span>
+                    <span id="listCount" style="font-weight:400;color:var(--muted);font-size:0.85em;"></span>
+                </div>
+                <div style="padding:12px;">
+                    <div class="deprem-grid" id="depremGrid">
+                        <div class="loading">Yükleniyor...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="depremModal">
+        <div class="modal-content" id="modalContent"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const API_URL = '/api/depremler';
+        let tumSehirler = new Set();
+        let map = null;
+        let markersLayer = null;
+        let countdown = 120;
+        let lastData = null;
+
+        function initMap() {
+            map = L.map('map', { zoomControl: true }).setView([39.0, 35.5], 6);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                maxZoom: 18
+            }).addTo(map);
+            markersLayer = L.layerGroup().addTo(map);
+        }
+
+        function markerRadius(mag) {
+            if (mag >= 6) return 14;
+            if (mag >= 5) return 11;
+            if (mag >= 4) return 9;
+            if (mag >= 3) return 7;
+            return 5;
+        }
+
+        function updateMap(depremler) {
+            if (!map || !markersLayer) return;
+            markersLayer.clearLayers();
+            depremler.forEach(d => {
+                if (!d.enlem || !d.boylam) return;
+                const renk = d.siniflandirma?.renk || '#95a5a6';
+                const circle = L.circleMarker([d.enlem, d.boylam], {
+                    radius: markerRadius(d.buyukluk),
+                    fillColor: renk,
+                    color: '#fff',
+                    weight: 1,
+                    opacity: 0.9,
+                    fillOpacity: 0.75
+                });
+                circle.bindPopup(`
+                    <div style="color:#111;min-width:180px;">
+                        <strong style="font-size:1.2em;">${d.buyukluk.toFixed(1)}</strong>
+                        <span style="color:#666;"> ${d.siniflandirma?.sinif || ''}</span><br>
+                        <div style="margin:6px 0;">${d.yer}</div>
+                        <small>${d.gun || ''} ${d.saat || ''} · ${d.derinlik?.toFixed(1)} km</small><br>
+                        <button onclick="detayGoster('${d.id}')" style="margin-top:6px;padding:4px 10px;background:#e94560;color:#fff;border:none;border-radius:6px;cursor:pointer;">Detay</button>
+                    </div>
+                `);
+                circle.on('click', () => {});
+                markersLayer.addLayer(circle);
+            });
+            document.getElementById('mapCount').textContent = depremler.length + ' nokta';
+        }
+
+        async function depremleriGetir(manual = false) {
+            const buyukluk = document.getElementById('buyuklukFilter').value;
+            const sehir = document.getElementById('sehirFilter').value;
+            const saat = document.getElementById('saatFilter').value;
+            const arama = document.getElementById('aramaInput').value.trim().toLowerCase();
+
+            let url = API_URL + '?limit=150&siralama=zaman';
+            if (buyukluk > 0) url += '&buyukluk=' + buyukluk;
+            if (sehir) url += '&sehir=' + encodeURIComponent(sehir);
+            if (saat > 0) url += '&saat=' + saat;
+
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.success) {
+                    let filtered = data.data;
+                    if (arama) {
+                        filtered = filtered.filter(d =>
+                            (d.yer && d.yer.toLowerCase().includes(arama)) ||
+                            (d.sehir && d.sehir.toLowerCase().includes(arama))
+                        );
+                    }
+                    lastData = { ...data, data: filtered };
+                    gosterDepremler(lastData);
+                    guncelleIstatistikler(data);
+                    sehirleriGuncelle(data.data);
+                    updateMap(filtered);
+                    if (data.kaynak) {
+                        document.getElementById('kaynakBadge').textContent = 'Kaynak: ' + data.kaynak;
+                    }
+                    if (manual) countdown = 120;
+                } else {
+                    document.getElementById('depremGrid').innerHTML = '<div class="empty">Veri alınamadı</div>';
+                }
+            } catch (err) {
+                document.getElementById('depremGrid').innerHTML = '<div class="loading">Bağlantı hatası – sunucu çalışıyor mu?</div>';
+                console.error(err);
+            }
+        }
+
+        function gosterDepremler(data) {
+            const grid = document.getElementById('depremGrid');
+            document.getElementById('listCount').textContent = data.data.length + ' kayıt';
+            if (data.data.length === 0) {
+                grid.innerHTML = '<div class="empty">Deprem bulunamadı</div>';
+                return;
+            }
+            grid.innerHTML = data.data.map(d => {
+                const renk = d.siniflandirma ? d.siniflandirma.renk : '#95a5a6';
+                return `
+                    <div class="deprem-card" onclick="detayGoster('${d.id}')">
+                        <div class="deprem-header">
+                            <div class="buyukluk-badge" style="background:${renk};">${d.buyukluk.toFixed(1)}</div>
+                            <div style="text-align:right;">
+                                <div style="color:#e94560;font-weight:600;font-size:0.95em;">${d.siniflandirma ? d.siniflandirma.sinif : '-'}</div>
+                                <div style="color:#9a9ab0;font-size:0.82em;">${d.gun || ''} ${d.saat || '-'}</div>
+                            </div>
+                        </div>
+                        <div class="deprem-info">
+                            <div class="info-item"><span class="label">Derinlik</span><span class="value">${d.derinlik.toFixed(1)} km</span></div>
+                            <div class="info-item"><span class="label">Şehir</span><span class="value">${d.sehir || '-'}</span></div>
+                            <div class="info-item"><span class="label">Şiddet</span><span class="value">${d.siddet ? d.siddet.seviye : '-'}</span></div>
+                            <div class="info-item"><span class="label">Fay</span><span class="value">${d.fayHatti ? d.fayHatti.split(' ')[0] : '-'}</span></div>
+                        </div>
+                        <div class="yer">📍 ${d.yer}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function guncelleIstatistikler(data) {
+            document.getElementById('totalDeprem').textContent = data.total ?? data.count ?? '-';
+            if (data.data && data.data.length > 0) {
+                const maxB = Math.max(...data.data.map(d => d.buyukluk));
+                document.getElementById('maxBuyukluk').textContent = maxB.toFixed(1);
+                const sehirSay = {};
+                data.data.forEach(d => { if (d.sehir) sehirSay[d.sehir] = (sehirSay[d.sehir] || 0) + 1; });
+                const aktif = Object.entries(sehirSay).sort((a, b) => b[1] - a[1])[0];
+                document.getElementById('aktifSehir').textContent = aktif ? aktif[0] : '-';
+                document.getElementById('buyukSayisi').textContent = data.data.filter(d => d.buyukluk >= 4).length;
+            }
+            if (data.lastUpdate) {
+                document.getElementById('lastUpdate').textContent = new Date(data.lastUpdate).toLocaleTimeString('tr-TR');
+            }
+        }
+
+        function sehirleriGuncelle(depremler) {
+            const current = document.getElementById('sehirFilter').value;
+            depremler.forEach(d => { if (d.sehir) tumSehirler.add(d.sehir); });
+            const select = document.getElementById('sehirFilter');
+            select.innerHTML = '<option value="">Tüm Şehirler</option>' +
+                [...tumSehirler].sort((a, b) => a.localeCompare(b, 'tr')).map(s =>
+                    `<option value="${s}" ${s === current ? 'selected' : ''}>${s}</option>`
+                ).join('');
+        }
+
+        async function detayGoster(id) {
+            try {
+                const res = await fetch('/api/deprem/' + encodeURIComponent(id));
+                const data = await res.json();
+                if (!data.success) {
+                    alert('Detay yüklenemedi');
+                    return;
+                }
+                const d = data.data;
+                document.getElementById('modalContent').innerHTML = `
+                    <div class="modal-header">
+                        <h2 style="color:#e94560;">Deprem Detayı – ${d.buyukluk.toFixed(1)}</h2>
+                        <span class="close" onclick="document.getElementById('depremModal').style.display='none'">&times;</span>
+                    </div>
+                    <div class="detail-grid">
+                        <div class="info-item"><span class="label">Büyüklük</span><span class="value">${d.buyukluk.toFixed(1)} (ML:${(d.ml||0).toFixed(1)} MW:${(d.mw||0).toFixed(1)})</span></div>
+                        <div class="info-item"><span class="label">Tarih</span><span class="value">${d.gun} ${d.saat}</span></div>
+                        <div class="info-item"><span class="label">Derinlik</span><span class="value">${d.derinlik.toFixed(1)} km</span></div>
+                        <div class="info-item"><span class="label">Şiddet</span><span class="value">${d.siddet?.seviye || '-'} – ${d.siddet?.aciklama || ''}</span></div>
+                        <div class="info-item"><span class="label">Sınıf</span><span class="value">${d.siniflandirma?.sinif || '-'}</span></div>
+                        <div class="info-item"><span class="label">Hasar</span><span class="value">${d.siniflandirma?.hasar || '-'}</span></div>
+                        <div class="info-item"><span class="label">Enerji</span><span class="value">${d.enerji?.deger || '-'}</span></div>
+                        <div class="info-item"><span class="label">TNT Eşdeğer</span><span class="value">${d.tntEsdeger || '-'}</span></div>
+                        <div class="info-item"><span class="label">Atom Bombası</span><span class="value">${d.atomBombasiEsdeger || '-'}</span></div>
+                        <div class="info-item"><span class="label">Yer Hareketi</span><span class="value">${d.yerHareketi?.pga || '-'} / ${d.yerHareketi?.pgv || '-'}</span></div>
+                    </div>
+                    <div class="yer">📍 ${d.yer}</div>
+                    <div class="section-title">🌍 Konum</div>
+                    <div class="detail-grid">
+                        <div class="info-item"><span class="label">Enlem</span><span class="value">${d.enlem?.toFixed(4)}</span></div>
+                        <div class="info-item"><span class="label">Boylam</span><span class="value">${d.boylam?.toFixed(4)}</span></div>
+                        <div class="info-item"><span class="label">Şehir</span><span class="value">${d.sehir || '-'}</span></div>
+                        <div class="info-item"><span class="label">İlçe</span><span class="value">${d.ilce || '-'}</span></div>
+                    </div>
+                    <div class="section-title">🏗️ Zemin & Risk</div>
+                    <div class="detail-grid">
+                        <div class="info-item"><span class="label">Zemin Tipi</span><span class="value">${d.zeminTipi || '-'}</span></div>
+                        <div class="info-item"><span class="label">Zemin Riski</span><span class="value">${d.zeminRiski || '-'}</span></div>
+                        <div class="info-item"><span class="label">Zemin Büyütme</span><span class="value">${d.zeminBuyutme || '-'}x</span></div>
+                        <div class="info-item"><span class="label">Sıvılaşma</span><span class="value">${d.sivilasmaRiski?.risk || '-'}</span></div>
+                        <div class="info-item"><span class="label">Tsunami</span><span class="value">${d.tsunamiRiski?.risk || '-'}</span></div>
+                        <div class="info-item"><span class="label">Yer Hareketi</span><span class="value">${d.yerHareketi?.siddet || '-'}</span></div>
+                    </div>
+                    <div class="section-title">🔧 Fay Hattı</div>
+                    <div class="detail-grid">
+                        <div class="info-item"><span class="label">Fay</span><span class="value">${d.fayHatti || 'Belirlenemedi'}</span></div>
+                        <div class="info-item"><span class="label">Risk</span><span class="value">${d.fayRiski || '-'}</span></div>
+                        <div class="info-item"><span class="label">Uzunluk</span><span class="value">${d.fayUzunluk || '-'}</span></div>
+                        <div class="info-item"><span class="label">Max Büyüklük</span><span class="value">${d.fayMaxBuyukluk || '-'}</span></div>
+                        <div class="info-item"><span class="label">Kayma Hızı</span><span class="value">${d.fayKaymaHizi || '-'}</span></div>
+                        <div class="info-item"><span class="label">Son Büyük</span><span class="value">${d.faySonBuyukDeprem || '-'}</span></div>
+                    </div>
+                    ${d.artciTahmini ? `
+                    <div class="section-title">📈 Artçı Tahmini</div>
+                    <div class="detail-grid">
+                        <div class="info-item"><span class="label">Beklenen Artçı</span><span class="value">${d.artciTahmini.beklenenToplamArtci}</span></div>
+                        <div class="info-item"><span class="label">En Büyük Artçı</span><span class="value">${d.artciTahmini.enBuyukArtci}</span></div>
+                        <div class="info-item"><span class="label">Süre</span><span class="value">${d.artciTahmini.artciSuresi}</span></div>
+                        <div class="info-item"><span class="label">Tahmin</span><span class="value">${d.artciTahmini.tahmin}</span></div>
+                    </div>
+                    ` : ''}
+                    <div class="section-title">🌊 Dalga Türleri</div>
+                    ${d.dalgaTurleri ? Object.values(d.dalgaTurleri).map(dalga => `
+                        <div style="background:rgba(255,255,255,0.04);padding:10px;border-radius:8px;margin-bottom:6px;font-size:0.9em;">
+                            <strong>${dalga.isim}</strong><br>
+                            Hız: ${dalga.hiz} · ${dalga.ozellik}<br>
+                            <span style="color:#9a9ab0;">His: ${dalga.his}</span>
+                        </div>
+                    `).join('') : ''}
+                    ${d.yakinDepremler && d.yakinDepremler.data?.length > 0 ? `
+                    <div class="section-title">📍 Yakın Depremler (${d.yakinDepremler.count})</div>
+                    ${d.yakinDepremler.data.slice(0, 8).map(y => `
+                        <div style="background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:8px;margin-bottom:4px;display:flex;justify-content:space-between;font-size:0.9em;">
+                            <span>${y.buyukluk.toFixed(1)} – ${y.yer}</span>
+                            <span style="color:#e94560;">${y.mesafe} km</span>
+                        </div>
+                    `).join('')}
+                    ` : ''}
+                `;
+                document.getElementById('depremModal').style.display = 'block';
+            } catch (err) {
+                alert('Detay yüklenemedi');
+                console.error(err);
+            }
+        }
+
+        // Filter listeners
+        ['buyuklukFilter', 'sehirFilter', 'saatFilter'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => depremleriGetir());
+        });
+        let aramaTimer;
+        document.getElementById('aramaInput').addEventListener('input', () => {
+            clearTimeout(aramaTimer);
+            aramaTimer = setTimeout(() => depremleriGetir(), 350);
+        });
+
+        document.getElementById('depremModal').addEventListener('click', function(e) {
+            if (e.target === this) this.style.display = 'none';
+        });
+
+        // Countdown
+        setInterval(() => {
+            countdown--;
+            if (countdown <= 0) {
+                countdown = 120;
+                depremleriGetir();
+            }
+            document.getElementById('refreshInfo').textContent = `Otomatik yenileme: ${countdown} sn`;
+        }, 1000);
+
+        // Init
+        initMap();
+        depremleriGetir();
+        setInterval(() => depremleriGetir(), 120000);
+    </script>
+</body>
+</html>
